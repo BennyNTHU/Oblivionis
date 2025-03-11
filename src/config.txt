@@ -1,13 +1,13 @@
 BGM_1=./BGM/avemujica.mp3
-BGM_2=./BGM/imprisonedxii.mp3
-BGM_3=./BGM/killkiss.mp3
-BGM_4=./BGM/avemujica.mp3
-BGM_5=./BGM/imprisonedxii.mp3
-BGM_6=./BGM/killkiss.mp3
-BGM_7=./BGM/avemujica.mp3
-BGM_8=./BGM/imprisonedxii.mp3
-BGM_9=./BGM/killkiss.mp3
-BGM_10=./BGM/avemujica.mp3
+BGM_2=./BGM/crucifix-x.mp3
+BGM_3=./BGM/imprisonedxii.mp3
+BGM_4=./BGM/georgette-me-georgette-you.mp3
+BGM_5=./BGM/avemujica.mp3
+BGM_6=./BGM/crucifix-x.mp3
+BGM_7=./BGM/imprisonedxii.mp3
+BGM_8=./BGM/georgette-me-georgette-you.mp3
+BGM_9=./BGM/avemujica.mp3
+BGM_10=./BGM/killkis.mp3
 
 SOUND_ROTATE=./soundeffect/rotate.wav
 SOUND_LINE_CLEAR=./soundeffect/line_clear.wav
