@@ -13,6 +13,7 @@ g++ -std=c++11 -DTEST_MODE ./src/main.cpp\
 */
 
 #include "Game.hpp"
+#include "AudioManager.hpp"
 
 int main() 
 {

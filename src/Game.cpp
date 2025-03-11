@@ -5,8 +5,14 @@
 #include <thread>
 #include <chrono>
 
-// Game.cpp
-Game::Game(): running(false), frameCount(0), framesPerDrop(30) {} // 假設 30 幀掉一次
+// 設定音效播放的最短間隔時間（秒）
+#define SOUND_COOLDOWN 0.3
+
+// 記錄上次播放音效的時間
+std::chrono::steady_clock::time_point lastMoveSoundTime;
+std::chrono::steady_clock::time_point lastRotateSoundTime;
+
+Game::Game(): running(false), frameCount(0), framesPerDrop(30) {}
 
 Game::~Game() {}
 
@@ -24,7 +30,7 @@ void Game::init()
     level = 1;
     framesPerDrop = 30;
 
-    audioManager.playMusic(level); // 播放第一關 BGM
+    audioManager.playMusic(level);
 
     countdownBeforeStart();
     std::cout << "[Game] Initialized.\n";
@@ -59,9 +65,16 @@ void Game::run()
 void Game::cleanup() 
 {
     inputHandler.restoreTerminal();
-    audioManager.stopMusic(); // 停止背景音樂
+
+    // 停止 BGM
+    audioManager.stopMusic();
+
+    // 現在才停音效 => 讓程式在結束前將音效殺掉
+    audioManager.stopSoundEffect();
+
     std::cout << "[Game] Cleanup and exit.\n";
 }
+
 
 void Game::handleEvents() 
 {
@@ -73,6 +86,8 @@ void Game::handleEvents()
         return;
     }
 
+    auto now = std::chrono::steady_clock::now();
+
     if (inputHandler.isMoveLeft()) 
     {
         currentTetromino.moveLeft();
@@ -82,7 +97,10 @@ void Game::handleEvents()
         } 
         else 
         {
-            audioManager.playMoveSound();
+            if (std::chrono::duration<double>(now - lastMoveSoundTime).count() > SOUND_COOLDOWN) 
+            {
+                lastMoveSoundTime = now;
+            }
         }
     }
 
@@ -95,7 +113,10 @@ void Game::handleEvents()
         } 
         else 
         {
-            audioManager.playMoveSound();
+            if (std::chrono::duration<double>(now - lastMoveSoundTime).count() > SOUND_COOLDOWN) 
+            {
+                lastMoveSoundTime = now;
+            }
         }
     }
 
@@ -108,7 +129,11 @@ void Game::handleEvents()
         } 
         else 
         {
-            audioManager.playRotateSound();
+            if (std::chrono::duration<double>(now - lastRotateSoundTime).count() > SOUND_COOLDOWN) 
+            {
+                lastRotateSoundTime = now;
+                audioManager.playRotateSound();
+            }
         }
     }
 
@@ -121,7 +146,11 @@ void Game::handleEvents()
         } 
         else 
         {
-            audioManager.playRotateSound();
+            if (std::chrono::duration<double>(now - lastRotateSoundTime).count() > SOUND_COOLDOWN) 
+            {
+                lastRotateSoundTime = now;
+                audioManager.playRotateSound();
+            }
         }
     }
 
@@ -134,17 +163,19 @@ void Game::handleEvents()
         } 
         else 
         {
-            audioManager.playMoveSound();
+            if (std::chrono::duration<double>(now - lastMoveSoundTime).count() > SOUND_COOLDOWN) 
+            {
+                lastMoveSoundTime = now;
+            }
         }
     }
 }
 
 void Game::update() {
-    // 只在累積到指定的幀數時才 moveDown
     if (frameCount >= framesPerDrop) 
     {
         currentTetromino.moveDown();
-        frameCount = 0;  // 重置計數器
+        frameCount = 0;  
 
         if (board.checkCollision(currentTetromino)) 
         {
@@ -158,19 +189,17 @@ void Game::update() {
                 audioManager.playLineClearSound();
             }
 
-            // **檢查是否達到當前關卡門檻**
             if (level <= 10 && scoreManager.getScore() >= levelThresholds[level - 1]) 
             {
-                nextLevel(); // 進入下一關
+                nextLevel();
             }
 
-            // 生成新方塊
             TetrominoType randomType = static_cast<TetrominoType>(std::rand() % 7);
             currentTetromino.reset(randomType);
 
             if (board.checkCollision(currentTetromino)) 
             {
-                running = false; // Game Over
+                running = false;
             }
         }
     } 
@@ -199,15 +228,15 @@ void Game::nextLevel()
     {
         std::cout << "[Game Over] 你已完成所有關卡！\n";
         running = false;
-        audioManager.stopMusic(); // 停止 BGM
+        audioManager.stopMusic();
         return;
     }
 
     std::cout << "[Level Up] 進入關卡 " << level << "!\n";
-    
-    audioManager.playMusic(level); // 切換 BGM
 
+    audioManager.stopMusic();  // 確保上一關的 BGM 停止
     countdownBeforeStart();
+    audioManager.playMusic(level);  // 只會在新關卡時播放 BGM
 
 #ifndef TEST_MODE
     if (framesPerDrop > 5) 

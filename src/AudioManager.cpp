@@ -1,22 +1,56 @@
 #include "AudioManager.hpp"
 #include <iostream>
 #include <fstream>
-#include <cstdlib> // for system()
+#include <cstdlib>
+#include <chrono>
+#include <thread>
+#include <unordered_map>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+#include <atomic>
+
 #ifdef _WIN32
     #include <windows.h>
     #include <mmsystem.h>
 #endif
 
+std::mutex soundMutex;
+std::queue<std::string> soundQueue;
+std::condition_variable soundCV;
+std::thread soundThread;
+std::atomic<bool> isRunning(true);
+bool isPlayingSound = false;
+
 AudioManager::AudioManager() 
 {
-    loadConfig(); // 初始化時讀取 config.txt
+    loadConfig();
+    lastSoundTime.clear();
+
+    // 只啟動一次執行緒
+    if (!soundThread.joinable()) 
+    {
+        soundThread = std::thread(&AudioManager::processSoundQueue, this);
+    }
 }
 
-AudioManager::~AudioManager() {}
+AudioManager::~AudioManager() 
+{
+    isRunning = false;
+    soundCV.notify_all();
+
+    if (soundThread.joinable()) 
+    {
+        soundThread.join(); 
+    }
+
+    // 移除 stopSoundEffect() 的呼叫，避免不必要地 kill aplay
+    // stopSoundEffect();
+}
 
 void AudioManager::loadConfig() 
 {
-    std::ifstream configFile("config.txt");
+    std::ifstream configFile("./src/config.txt");
     if (!configFile) 
     {
         std::cerr << "[Error] 無法讀取 config.txt\n";
@@ -45,24 +79,69 @@ void AudioManager::playSoundEffect(const std::string& key)
         return;
     }
 
+    auto now = std::chrono::steady_clock::now();
+    if (lastSoundTime.find(key) != lastSoundTime.end()) 
+    {
+        double elapsed = std::chrono::duration<double>(now - lastSoundTime[key]).count();
+        if (elapsed < 0.5) return;  // **冷卻時間 0.1 秒，防止過度疊加**
+    }
+    lastSoundTime[key] = now;
+
     std::string filePath = configMap[key];
     std::cout << "[Audio] 播放音效: " << filePath << "\n";
 
 #ifdef _WIN32
     PlaySound(TEXT(filePath.c_str()), NULL, SND_FILENAME | SND_ASYNC);
 #else
-    std::string command = "aplay " + filePath + " &";
-    system(command.c_str());
+    std::thread([filePath]() {
+        std::string command = "aplay " + filePath;
+        system(command.c_str());
+    }).detach();
 #endif
 }
+
+void AudioManager::processSoundQueue() 
+{
+    while (isRunning) 
+    {
+        std::unique_lock<std::mutex> lock(soundMutex);
+        soundCV.wait(lock, []{ return !soundQueue.empty() || !isRunning; });
+
+        if (!isRunning) break;
+
+        if (!soundQueue.empty()) 
+        {
+            isPlayingSound = true;
+            auto soundFile = soundQueue.front();
+            soundQueue.pop();
+            lock.unlock();
+
+#ifdef _WIN32
+            // Windows 用 PlaySound
+            PlaySound(TEXT(soundFile.c_str()), NULL, SND_FILENAME | SND_SYNC);
+#else
+            // Linux/macOS 用 aplay
+            std::string command = "aplay " + soundFile;
+            int ret = system(command.c_str());
+#endif
+            isPlayingSound = false;
+        }
+    }
+}
+
+// 停音效 => 可以只在程式結束時呼叫, 避免遊戲時期殺死 aplay
+void AudioManager::stopSoundEffect() 
+{
+#ifndef _WIN32
+    system("pkill -9 aplay");
+#endif
+}
+
+// ---- 其它函式 (playLineClearSound, playMoveSound...) 保留 ----
+
 void AudioManager::playLineClearSound() 
 {
     playSoundEffect("SOUND_LINE_CLEAR");
-}
-
-void AudioManager::playMoveSound() 
-{
-    playSoundEffect("SOUND_MOVE");
 }
 
 void AudioManager::playRotateSound() 
@@ -80,14 +159,22 @@ void AudioManager::playMusic(int level)
     }
 
     std::string bgmFile = configMap[key];
-    if (bgmFile == currentBGM) return; // 如果音樂未變更，不重新播放
+
+    // **如果 BGM 未變更，則不重新播放**
+    if (bgmFile == currentBGM) 
+    {
+        return;
+    }
+
+    stopMusic();  // **確保舊 BGM 先停止**
     currentBGM = bgmFile;
 
     std::cout << "[Audio] 播放 BGM: " << bgmFile << "\n";
+
 #ifdef _WIN32
     PlaySound(TEXT(bgmFile.c_str()), NULL, SND_FILENAME | SND_ASYNC | SND_LOOP);
 #else
-    std::string command = "mpg123 -q " + bgmFile + " &";
+    std::string command = "nohup mpg123 --loop -1 -q " + bgmFile + " &";
     system(command.c_str());
 #endif
 }
@@ -98,7 +185,11 @@ void AudioManager::stopMusic()
 #ifdef _WIN32
     PlaySound(NULL, NULL, 0);
 #else
-    system("pkill mpg123");
+    system("pkill -9 mpg123");  // **強制停止所有 mpg123 進程**
 #endif
 }
 
+std::string AudioManager::getCurrentBGM() 
+{
+    return currentBGM;
+}
